@@ -209,6 +209,7 @@ footer{border-top:1px solid var(--border);padding:22px 0;color:var(--muted);font
     <button class="btn btn-primary" id="rep-zip">PDF por carrera (ZIP)</button>
     <button class="btn btn-gold" id="rep-pdf">PDF consolidado</button>
     <button class="btn btn-ghost" id="rep-xlsx">Excel (una hoja por carrera)</button>
+    <button class="btn btn-gold" id="rep-json" title="Archivo para cargar en el Armador de informe: una sección por carrera, con indicadores y gráficos">Resumen para el Armador (.json)</button>
     <span style="font-size:13px;color:var(--muted)" id="rep-status"></span>
    </div>
   </div>
@@ -580,9 +581,30 @@ async function repPdf(){ const sel=selectedGroups(); if(!sel.length){status('Mar
  lock(true); try{ const doc=newDoc(); cover(doc,'Informes por carrera',periodLine(),sel.length+' carreras · '+fmt(sel.reduce((s,g)=>s+g.total,0))+' préstamos');
   for(let i=0;i<sel.length;i++){ status('Generando '+(i+1)+' de '+sel.length+': '+truncate(sel[i].name,30)+'…'); await tick(); doc.addPage(); addSection(doc,sel[i].name,sel[i].recs,true); }
   footers(doc,'Informes por carrera · Sistema de Bibliotecas',true); doc.save('Informes_por_carrera.pdf'); status('Listo.'); } catch(e){ status('Error: '+e.message); } lock(false); }
-function lock(b){ ['rep-zip','rep-pdf','rep-xlsx'].forEach(id=>$(id).disabled=b); }
+function lock(b){ ['rep-zip','rep-pdf','rep-xlsx','rep-json'].forEach(id=>$(id).disabled=b); }
 function exportCurrentPDF(){ if(!S.base.length)return; const sel=S.fe.carrera&&S.fe.carrera.value?S.fe.carrera.value:'Selección actual'; const recs=S.base;
  const doc=newDoc(); cover(doc,sel,periodLine(),fmt(recs.length)+' registros'); doc.addPage(); addSection(doc,sel,recs,true); footers(doc,'Informe de uso · '+truncate(sel,50)+' · Sistema de Bibliotecas',true); doc.save('Informe_'+safeName(sel)+'.pdf'); }
+
+/* ---------- Resumen para el Armador de informe ---------- */
+function careerSummary(g){
+ const evo=analyzeEvo(g.recs,S.gran),rows=buildCmp(g.recs),st=cmpStats(rows);
+ const out={name:g.name,total:g.total,titulos:g.mats,t1:st.t1,t2:st.t2,varPct:isFinite(st.varPct)?Number(st.varPct.toFixed(1)):null,varNueva:st.varPct===Infinity};
+ if(!evo.total)return out;
+ const pk=peakOf(evo),nb=evo.buckets.length,tp=trendOf(evo);
+ Object.assign(out,{desde:fmtDateShort(evo.dateMin),hasta:fmtDateShort(evo.dateMax),promedio:Number((evo.total/nb).toFixed(1)),buckets:nb,pico:{label:pk.label,v:pk.v},
+  tendencia:(tp==null||tp===Infinity)?null:Number(tp.toFixed(1)),tendenciaNueva:tp===Infinity,
+  topTitulos:evo.materials.slice(0,10).map(m=>({k:m.disp,v:m.total})),usuarios:evo.byUsuario.slice(0,10),
+  evo:{labels:evo.buckets.map(b=>b.label),totals:evo.totals},
+  comparacion:[...rows].sort((a,b)=>b.combined-a.combined).slice(0,12).map(r=>({k:r.material,p1:r.p1,p2:r.p2})),
+  conclusiones:conclusions(g.name,evo,rows,st)});
+ return out; }
+function exportRepJson(){ const sel=selectedGroups(); if(!sel.length){status('Marca al menos una carrera.');return;}
+ lock(true); try{
+  const carreras=sel.map(careerSummary);
+  const obj={kind:'resumen-uso',v:1,generated:new Date().toISOString(),granLabel:GL[S.gran],periodos:{a:nameA(),b:nameB()},carreras};
+  download(new Blob([JSON.stringify(obj)],{type:'application/json'}),'Resumen_para_armador_'+isoDate(new Date())+'.json');
+  status('Listo: resumen de '+carreras.length+' carreras. Cárgalo en el Armador de informe.'); }
+ catch(e){ status('Error: '+e.message); } lock(false); }
 
 /* ---------- Excel ---------- */
 function sheetName(wb,n){ let s=String(n).replace(/[\\\/?*\[\]:]/g,' ').trim().slice(0,31)||'Hoja'; let b=s,i=2; while(wb.SheetNames.includes(s)){ s=b.slice(0,28)+' '+i++; } return s; }
@@ -622,7 +644,7 @@ function init(){ bindDrop('a'); bindDrop('b');
  $('clear-filters').addEventListener('click',()=>{ Object.values(S.fe).forEach(s=>s.value=''); const [mn,mx]=minMax(S.records); $('evo-from').value=isoDate(mn); $('evo-to').value=isoDate(mx); applyAll(); });
  $('rep-all').addEventListener('change',e=>{ S.repSel=new Set(e.target.checked?S.repRows.map(r=>r.name):[]); renderRep(); });
  $('export-xlsx').addEventListener('click',exportXLSX); $('export-pdf').addEventListener('click',exportCurrentPDF);
- $('rep-zip').addEventListener('click',repZip); $('rep-pdf').addEventListener('click',repPdf); $('rep-xlsx').addEventListener('click',exportRepXlsx); }
+ $('rep-zip').addEventListener('click',repZip); $('rep-pdf').addEventListener('click',repPdf); $('rep-xlsx').addEventListener('click',exportRepXlsx); $('rep-json').addEventListener('click',exportRepJson); }
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
